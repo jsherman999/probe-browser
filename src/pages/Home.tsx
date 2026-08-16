@@ -126,7 +126,7 @@ function KeyManager() {
                 </button>
                 <button
                   onClick={() => runTest(provider.id)}
-                  disabled={testing[provider.id] || !keys[provider.id]?.trim()}
+                  disabled={testing[provider.id] || (!keys[provider.id]?.trim() && provider.id !== 'custom')}
                   className="px-3 py-2 bg-accent hover:bg-blue-600 disabled:opacity-40 text-white rounded text-sm font-semibold transition-colors"
                 >
                   {testing[provider.id] ? 'Testing...' : 'Test'}

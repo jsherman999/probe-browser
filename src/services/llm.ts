@@ -41,7 +41,8 @@ export async function chatCompletion(opts: ChatOptions): Promise<string> {
   if (!model) {
     throw new LLMError('No model configured for this provider');
   }
-  if (!opts.apiKey.trim()) {
+  // Custom/self-hosted endpoints (Ollama, LM Studio, vLLM) may not need a key.
+  if (!opts.apiKey.trim() && opts.providerId !== 'custom') {
     throw new LLMError(`No API key saved for ${provider.name}. Add one on the Home screen.`);
   }
 
@@ -78,7 +79,7 @@ async function callOpenAICompat(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (provider.auth === 'bearer') {
+  if (provider.auth === 'bearer' && apiKey.trim()) {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 

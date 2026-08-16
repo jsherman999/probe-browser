@@ -113,7 +113,7 @@ export default function Setup() {
             const provider = PROVIDERS.find(p => p.id === bot.providerId);
             const isHeuristic = bot.providerId === HEURISTIC_PROVIDER;
             const isCustom = bot.providerId === 'custom';
-            const hasKey = isHeuristic || getApiKey(bot.providerId).trim().length > 0;
+            const hasKey = isHeuristic || bot.providerId === 'custom' || getApiKey(bot.providerId).trim().length > 0;
 
             return (
               <div key={bot.key} className="bg-primary-bg rounded-lg p-4 space-y-3">
@@ -188,7 +188,9 @@ export default function Setup() {
                   <p className={`text-xs ${hasKey ? 'text-green-400' : 'text-warning'}`}>
                     {hasKey
                       ? `✓ API key saved for ${provider?.name}`
-                      : `⚠ No key saved for ${provider?.name} — this bot will fall back to the heuristic brain. Add a key on the Home screen.`}
+                      : isCustom
+                        ? '✓ Custom endpoint configured — no key needed for local servers'
+                        : `⚠ No key saved for ${provider?.name} — this bot will fall back to the heuristic brain. Add a key on the Home screen.`}
                   </p>
                 )}
               </div>

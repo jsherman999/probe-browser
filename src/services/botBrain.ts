@@ -324,7 +324,9 @@ function runtimeFor(config: BotConfig): BotRuntime {
 }
 
 export function botHasKey(config: BotConfig): boolean {
-  return config.providerId === HEURISTIC_PROVIDER || getApiKey(config.providerId).trim().length > 0;
+  // Custom/self-hosted endpoints may not require a key.
+  if (config.providerId === HEURISTIC_PROVIDER || config.providerId === 'custom') return true;
+  return getApiKey(config.providerId).trim().length > 0;
 }
 
 /** True if the bot is configured for an LLM AND has a key saved. */
@@ -371,7 +373,7 @@ export async function decideGuess(
     return { action: 'guess', targetId, letter, wordGuess: null, source: 'heuristic' };
   };
 
-  if (runtime.providerId === HEURISTIC_PROVIDER || !runtime.apiKey) {
+  if (runtime.providerId === HEURISTIC_PROVIDER || !botHasKey(config)) {
     return heuristic();
   }
 
@@ -429,7 +431,7 @@ export async function decideWordPick(config: BotConfig, game: SanitizedGame): Pr
     return { action: 'pickWord', ...pick, source: 'heuristic' };
   };
 
-  if (runtime.providerId === HEURISTIC_PROVIDER || !runtime.apiKey) {
+  if (runtime.providerId === HEURISTIC_PROVIDER || !botHasKey(config)) {
     return heuristic();
   }
 
@@ -478,7 +480,7 @@ export async function decidePosition(
     return { action: 'pickPosition', position: Math.max(...positions), source: 'heuristic' };
   };
 
-  if (runtime.providerId === HEURISTIC_PROVIDER || !runtime.apiKey || !bot) {
+  if (runtime.providerId === HEURISTIC_PROVIDER || !botHasKey(config) || !bot) {
     return heuristic();
   }
 
