@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  min-width: 320px;
+  min-height: 100vh;
+  background-color: #1e293b;
+  color: #f1f5f9;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-accent hover:bg-blue-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary-bg hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors duration-200;
+  }
+
+  .input-field {
+    @apply bg-secondary-bg border-2 border-tile-border text-text-primary rounded-lg px-4 py-3 w-full focus:outline-none focus:border-accent transition-colors;
+  }
+
+  .letter-tile {
+    @apply w-10 h-10 md:w-14 md:h-14 lg:w-16 lg:h-16 flex items-center justify-center text-xl md:text-2xl lg:text-3xl font-bold border-2 rounded transition-all duration-200;
+  }
+
+  .letter-tile-concealed {
+    @apply letter-tile bg-tile-concealed border-tile-border text-transparent;
+  }
+
+  .letter-tile-revealed {
+    @apply letter-tile bg-tile-revealed border-tile-border text-primary-bg;
+  }
+
+  .card {
+    @apply bg-secondary-bg rounded-xl p-6 shadow-lg;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
