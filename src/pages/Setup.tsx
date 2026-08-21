@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PROVIDERS, getApiKey } from '../services/providers';
+import { getApiKey, getEffectiveProvider, getLLMConfig, getProvider, type LLMConfig } from '../services/providers';
 import { HEURISTIC_PROVIDER, saveSettings, type BotConfig, type GameSettings } from '../services/botBrain';
 import { LocalGameController } from '../services/LocalGameController';
 import { setController } from '../services/gameSession';
 
 const NAME_KEY = 'probe_human_name';
+/** Pseudo-provider for "use the LLM configured on the Home screen". */
+const LLM_BRAIN = 'llm';
 const TIMER_PRESETS = [
   { label: '30 sec', value: 30 },
   { label: '1 min', value: 60 },
@@ -20,13 +22,29 @@ interface BotDraft extends BotConfig {
   key: number;
 }
 
+function llmSummary(cfg: LLMConfig | null): { label: string; detail: string; hasKey: boolean } | null {
+  if (!cfg) return null;
+  const provider = getEffectiveProvider(cfg.providerId);
+  if (!provider) return null;
+  const model = cfg.model || provider.defaultFreeModel;
+  const hasKey =
+    cfg.providerId === 'custom' || getApiKey(cfg.providerId).trim().length > 0;
+  return {
+    label: `${provider.name}${model ? ` · ${model}` : ''}`,
+    detail: `Will use ${provider.name}${model ? ` with model ${model}` : ''}.`,
+    hasKey,
+  };
+}
+
 function freshBot(index: number): BotDraft {
+  const llm = llmSummary(getLLMConfig());
+  const useLlm = index === 0 && !!llm && llm.hasKey;
   return {
     key: Date.now() + index,
     id: `${BOT_ID_PREFIX}${Date.now().toString(36)}-${index}`,
     name: BOT_NAMES[index] || `Bot ${index + 1}`,
-    providerId: index === 0 ? 'groq' : 'heuristic',
-    model: index === 0 ? '' : null,
+    providerId: useLlm ? LLM_BRAIN : HEURISTIC_PROVIDER,
+    model: null,
   };
 }
 
@@ -36,6 +54,7 @@ export default function Setup() {
   const [bots, setBots] = useState<BotDraft[]>([freshBot(0)]);
   const [timerSeconds, setTimerSeconds] = useState(120);
   const [error, setError] = useState('');
+  const llm = llmSummary(getLLMConfig());
 
   const updateBot = (key: number, patch: Partial<BotDraft>) => {
     setBots(prev => prev.map(b => (b.key === key ? { ...b, ...patch } : b)));
@@ -59,14 +78,20 @@ export default function Setup() {
       setError('Add at least one bot (or more humans on other devices later — for now this build plays you vs bots).');
       return;
     }
+    const llmCfg = getLLMConfig();
     const settings: GameSettings = {
       humanName: humanName.trim(),
       turnTimerSeconds: timerSeconds,
-      bots: bots.map(({ key: _key, ...bot }) => ({
-        ...bot,
-        // null model => provider default free model
-        model: bot.model === '' ? null : bot.model,
-      })),
+      bots: bots.map(({ key: _key, ...bot }) => {
+        if (bot.providerId !== LLM_BRAIN) {
+          // null model => provider default free model
+          return { ...bot, model: bot.model === '' ? null : bot.model };
+        }
+        // LLM brain: use the single provider + model configured on the Home screen.
+        const providerId =
+          llmCfg && getProvider(llmCfg.providerId) ? llmCfg.providerId : HEURISTIC_PROVIDER;
+        return { ...bot, providerId, model: llmCfg ? llmCfg.model : null };
+      }),
     };
     localStorage.setItem(NAME_KEY, humanName.trim());
     saveSettings(settings);
@@ -110,10 +135,7 @@ export default function Setup() {
           </div>
 
           {bots.map(bot => {
-            const provider = PROVIDERS.find(p => p.id === bot.providerId);
-            const isHeuristic = bot.providerId === HEURISTIC_PROVIDER;
-            const isCustom = bot.providerId === 'custom';
-            const hasKey = isHeuristic || bot.providerId === 'custom' || getApiKey(bot.providerId).trim().length > 0;
+            const isLlm = bot.providerId === LLM_BRAIN;
 
             return (
               <div key={bot.key} className="bg-primary-bg rounded-lg p-4 space-y-3">
@@ -134,63 +156,29 @@ export default function Setup() {
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs text-text-muted mb-1">Brain / Provider</label>
-                    <select
-                      value={bot.providerId}
-                      onChange={e => {
-                        const id = e.target.value;
-                        updateBot(bot.key, { providerId: id, model: id === HEURISTIC_PROVIDER ? null : '' });
-                      }}
-                      className="input-field"
-                    >
-                      <option value={HEURISTIC_PROVIDER}>Built-in heuristic (no key)</option>
-                      {PROVIDERS.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {!isHeuristic && (
-                    <div>
-                      <label className="block text-xs text-text-muted mb-1">Model</label>
-                      {isCustom ? (
-                        <input
-                          type="text"
-                          value={bot.model || ''}
-                          onChange={e => updateBot(bot.key, { model: e.target.value })}
-                          placeholder="Default free model id"
-                          className="input-field"
-                        />
-                      ) : (
-                        <select
-                          value={bot.model || ''}
-                          onChange={e => updateBot(bot.key, { model: e.target.value })}
-                          className="input-field"
-                        >
-                          <option value="">⭐ Default (free): {provider?.defaultFreeModel}</option>
-                          {provider?.models.map(m => (
-                            <option key={m.id} value={m.id}>
-                              {m.label}
-                              {m.free ? ' (free)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  )}
+                <div>
+                  <label className="block text-xs text-text-muted mb-1">Brain</label>
+                  <select
+                    value={bot.providerId}
+                    onChange={e => updateBot(bot.key, { providerId: e.target.value, model: null })}
+                    className="input-field"
+                  >
+                    <option value={HEURISTIC_PROVIDER}>Built-in heuristic (no key)</option>
+                    <option value={LLM_BRAIN}>
+                      LLM — {llm ? llm.label : 'not configured on the Home screen'}
+                    </option>
+                  </select>
                 </div>
 
-                {!isHeuristic && (
-                  <p className={`text-xs ${hasKey ? 'text-green-400' : 'text-warning'}`}>
-                    {hasKey
-                      ? `✓ API key saved for ${provider?.name}`
-                      : isCustom
-                        ? '✓ Custom endpoint configured — no key needed for local servers'
-                        : `⚠ No key saved for ${provider?.name} — this bot will fall back to the heuristic brain. Add a key on the Home screen.`}
+                {isLlm && (
+                  <p className={`text-xs ${llm?.hasKey ? 'text-green-400' : 'text-warning'}`}>
+                    {llm
+                      ? llm.hasKey
+                        ? `✓ ${llm.detail}`
+                        : `⚠ ${llm.detail} But no API key is saved — this bot will fall back to the
+                           heuristic brain. Add a key on the Home screen.`
+                      : `⚠ No LLM configured yet — add a key on the Home screen (the provider is
+                        auto-detected from the key). This bot will fall back to the heuristic brain.`}
                   </p>
                 )}
               </div>

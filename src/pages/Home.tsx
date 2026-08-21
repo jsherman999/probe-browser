@@ -1,159 +1,249 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PROVIDERS, getApiKey, setApiKey, getCustomBaseUrl, setCustomBaseUrl, getCustomDefaultModel, setCustomDefaultModel, getEffectiveProvider } from '../services/providers';
+import {
+  PROVIDERS,
+  getApiKey,
+  setApiKey,
+  getApiKeys,
+  getProvider,
+  getCustomBaseUrl,
+  setCustomBaseUrl,
+  setCustomDefaultModel,
+  getEffectiveProvider,
+  getLLMConfig,
+  saveLLMConfig,
+  detectProviderFromKey,
+} from '../services/providers';
 import { testConnection, LLMError } from '../services/llm';
 import { loadSettings } from '../services/botBrain';
 import { loadActiveGame } from '../services/LocalGameController';
 
 const NAME_KEY = 'probe_human_name';
 
-function KeyManager() {
-  const [keys, setKeys] = useState<Record<string, string>>(() =>
-    Object.fromEntries(PROVIDERS.map(p => [p.id, getApiKey(p.id)]))
-  );
-  const [visible, setVisible] = useState<Record<string, boolean>>({});
-  const [testing, setTesting] = useState<Record<string, boolean>>({});
-  const [results, setResults] = useState<Record<string, { ok: boolean; text: string }>>({});
-  const [customBase, setCustomBase] = useState(getCustomBaseUrl());
-  const [customModel, setCustomModel] = useState(getCustomDefaultModel());
+/** Provider to show initially: saved config > first provider with a saved key > groq. */
+function initialProviderId(): string {
+  const saved = getLLMConfig();
+  if (saved && getProvider(saved.providerId)) return saved.providerId;
+  const keys = getApiKeys();
+  return PROVIDERS.find(p => (keys[p.id] || '').trim())?.id || 'groq';
+}
 
-  const save = (id: string, value: string) => {
-    setKeys(prev => ({ ...prev, [id]: value }));
-    setApiKey(id, value);
-    setResults(prev => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+/** One window for all LLM setup: paste a key → provider auto-detected → pick a model. */
+function LLMSetup() {
+  const initialProvider = initialProviderId();
+  const [providerId, setProviderId] = useState(initialProvider);
+  const [key, setKey] = useState(() => getApiKey(initialProvider));
+  const [model, setModel] = useState<string>(() => {
+    const saved = getLLMConfig();
+    if (saved && saved.providerId === initialProvider && saved.model) {
+      const p = getProvider(initialProvider)!;
+      if (initialProvider === 'custom' || p.models.some(m => m.id === saved.model)) return saved.model;
+    }
+    return '';
+  });
+  const [visible, setVisible] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [customBase, setCustomBase] = useState(getCustomBaseUrl());
+
+  const provider = getProvider(providerId)!;
+  const isCustom = providerId === 'custom';
+  const detected = detectProviderFromKey(key);
+  const savedKeyProviders = Object.entries(getApiKeys())
+    .filter(([, v]) => v.trim())
+    .map(([id]) => getProvider(id)?.name || id);
+
+  const onKeyChange = (value: string) => {
+    const nextDetected = detectProviderFromKey(value);
+    if (nextDetected && nextDetected !== providerId) {
+      // Provider auto-detected: move the key to the detected provider and
+      // drop any partial key we had been writing under the previous one.
+      if (getApiKey(providerId) === key) setApiKey(providerId, '');
+      setApiKey(nextDetected, value);
+      saveLLMConfig({ providerId: nextDetected, model: model === '' ? null : model });
+      setProviderId(nextDetected);
+    } else {
+      setApiKey(providerId, value);
+    }
+    setKey(value);
+    setResult(null);
   };
 
-  const runTest = async (id: string) => {
-    setTesting(prev => ({ ...prev, [id]: true }));
-    setResults(prev => {
-      const next = { ...prev };
-      delete next[id];
-      return next;
-    });
+  const onProviderChange = (id: string) => {
+    const p = getProvider(id)!;
+    const nextModel =
+      model && (id === 'custom' || p.models.some(m => m.id === model)) ? model : '';
+    setProviderId(id);
+    setKey(getApiKey(id));
+    setModel(nextModel);
+    saveLLMConfig({ providerId: id, model: nextModel === '' ? null : nextModel });
+    setResult(null);
+  };
+
+  const onModelChange = (value: string) => {
+    setModel(value);
+    if (isCustom) setCustomDefaultModel(value);
+    saveLLMConfig({ providerId, model: value === '' ? null : value });
+  };
+
+  const runTest = async () => {
+    setTesting(true);
+    setResult(null);
     try {
-      const provider = getEffectiveProvider(id)!;
-      const text = await testConnection(id, keys[id] || '', provider.defaultFreeModel || null);
-      setResults(prev => ({ ...prev, [id]: { ok: true, text } }));
+      const p = getEffectiveProvider(providerId)!;
+      const text = await testConnection(providerId, key, model || p.defaultFreeModel || null);
+      setResult({ ok: true, text });
     } catch (err) {
       const msg = err instanceof LLMError ? err.message : (err as Error).message;
-      setResults(prev => ({ ...prev, [id]: { ok: false, text: msg } }));
+      setResult({ ok: false, text: msg });
     } finally {
-      setTesting(prev => ({ ...prev, [id]: false }));
+      setTesting(false);
     }
   };
 
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-2">
-        <h2 className="text-xl font-bold">🔑 LLM API Keys</h2>
+        <h2 className="text-xl font-bold">🔑 LLM API</h2>
         <span className="text-xs text-text-muted">stored only in this browser</span>
       </div>
       <p className="text-sm text-text-secondary mb-4">
-        Add a key for any provider, then assign that provider to a bot on the setup screen.
-        Each provider has a <strong>default free model</strong> used when a bot picks &ldquo;Default (free)&rdquo;.
+        Paste an API key — the provider is <strong>detected automatically</strong> — then pick a model
+        from the dropdown. Bots on the setup screen use this setup.
       </p>
 
       <div className="space-y-3">
-        {PROVIDERS.map(provider => {
-          const isCustom = provider.id === 'custom';
-          return (
-            <div key={provider.id} className="bg-primary-bg rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <span className="font-semibold">{provider.name}</span>
-                  <span className="ml-2 text-xs text-accent">
-                    free default: <span className="font-mono">{provider.defaultFreeModel || '— set below —'}</span>
-                  </span>
-                </div>
-                {provider.keyUrl && (
-                  <a
-                    href={provider.keyUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs text-accent hover:underline"
-                  >
-                    Get key ↗
-                  </a>
-                )}
-              </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="block text-xs text-text-muted">Provider</label>
+            {provider.keyUrl && (
+              <a
+                href={provider.keyUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-accent hover:underline"
+              >
+                Get key ↗
+              </a>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              value={providerId}
+              onChange={e => onProviderChange(e.target.value)}
+              className="input-field flex-1"
+            >
+              {PROVIDERS.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            {detected && (
+              <span className="text-xs text-green-400 whitespace-nowrap">✓ auto-detected</span>
+            )}
+          </div>
+          {provider.notes && <p className="text-xs text-text-muted mt-1">{provider.notes}</p>}
+        </div>
 
-              {provider.notes && <p className="text-xs text-text-muted mb-2">{provider.notes}</p>}
+        {isCustom && (
+          <div>
+            <label className="block text-xs text-text-muted mb-1">Base URL</label>
+            <input
+              type="text"
+              value={customBase}
+              onChange={e => {
+                setCustomBase(e.target.value);
+                setCustomBaseUrl(e.target.value);
+              }}
+              placeholder="Base URL, e.g. http://localhost:11434/v1"
+              className="input-field text-sm"
+            />
+          </div>
+        )}
 
-              {isCustom && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-                  <input
-                    type="text"
-                    value={customBase}
-                    onChange={e => {
-                      setCustomBase(e.target.value);
-                      setCustomBaseUrl(e.target.value);
-                    }}
-                    placeholder="Base URL, e.g. http://localhost:11434/v1"
-                    className="input-field text-sm"
-                  />
-                  <input
-                    type="text"
-                    value={customModel}
-                    onChange={e => {
-                      setCustomModel(e.target.value);
-                      setCustomDefaultModel(e.target.value);
-                    }}
-                    placeholder="Default free model id"
-                    className="input-field text-sm"
-                  />
-                </div>
-              )}
+        <div>
+          <label className="block text-xs text-text-muted mb-1">
+            API key{isCustom ? ' (optional for local servers)' : ''}
+          </label>
+          <div className="flex gap-2">
+            <input
+              type={visible ? 'text' : 'password'}
+              value={key}
+              onChange={e => onKeyChange(e.target.value)}
+              placeholder={isCustom ? 'API key (if required)' : 'Paste your API key — provider is detected'}
+              className="input-field text-sm flex-1"
+              autoComplete="off"
+            />
+            <button
+              onClick={() => setVisible(v => !v)}
+              className="px-3 py-2 bg-secondary-bg rounded text-sm hover:bg-slate-600 transition-colors"
+              title={visible ? 'Hide key' : 'Show key'}
+            >
+              {visible ? '🙈' : '👁️'}
+            </button>
+            <button
+              onClick={runTest}
+              disabled={testing || (!key.trim() && !isCustom)}
+              className="px-3 py-2 bg-accent hover:bg-blue-600 disabled:opacity-40 text-white rounded text-sm font-semibold transition-colors"
+            >
+              {testing ? 'Testing...' : 'Test'}
+            </button>
+          </div>
+          {key.trim() && !detected && (
+            <p className="text-xs text-warning mt-1">
+              Couldn&rsquo;t auto-detect the provider from this key — pick it from the dropdown above.
+            </p>
+          )}
+        </div>
 
-              <div className="flex gap-2">
-                <input
-                  type={visible[provider.id] ? 'text' : 'password'}
-                  value={keys[provider.id] || ''}
-                  onChange={e => save(provider.id, e.target.value)}
-                  placeholder={isCustom ? 'API key (if required)' : 'sk-...'}
-                  className="input-field text-sm flex-1"
-                  autoComplete="off"
-                />
-                <button
-                  onClick={() => setVisible(prev => ({ ...prev, [provider.id]: !prev[provider.id] }))}
-                  className="px-3 py-2 bg-secondary-bg rounded text-sm hover:bg-slate-600 transition-colors"
-                  title={visible[provider.id] ? 'Hide key' : 'Show key'}
-                >
-                  {visible[provider.id] ? '🙈' : '👁️'}
-                </button>
-                <button
-                  onClick={() => runTest(provider.id)}
-                  disabled={testing[provider.id] || (!keys[provider.id]?.trim() && provider.id !== 'custom')}
-                  className="px-3 py-2 bg-accent hover:bg-blue-600 disabled:opacity-40 text-white rounded text-sm font-semibold transition-colors"
-                >
-                  {testing[provider.id] ? 'Testing...' : 'Test'}
-                </button>
-              </div>
+        <div>
+          <label className="block text-xs text-text-muted mb-1">Model</label>
+          {isCustom ? (
+            <input
+              type="text"
+              value={model}
+              onChange={e => onModelChange(e.target.value)}
+              placeholder="Model id, e.g. llama3.1"
+              className="input-field text-sm"
+            />
+          ) : (
+            <select
+              value={model}
+              onChange={e => onModelChange(e.target.value)}
+              className="input-field text-sm"
+            >
+              <option value="">⭐ Default (free): {provider.defaultFreeModel}</option>
+              {provider.models.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                  {m.free ? ' (free)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
 
-              {results[provider.id] && (
-                <p
-                  className={`mt-2 text-xs px-2 py-1 rounded ${
-                    results[provider.id].ok
-                      ? 'bg-green-600/20 text-green-400'
-                      : 'bg-red-600/20 text-red-400'
-                  }`}
-                >
-                  {results[provider.id].ok
-                    ? `✓ Connected — model replied: ${results[provider.id].text}`
-                    : `✗ ${results[provider.id].text}`}
-                </p>
-              )}
-            </div>
-          );
-        })}
+        {result && (
+          <p
+            className={`text-xs px-2 py-1 rounded ${
+              result.ok ? 'bg-green-600/20 text-green-400' : 'bg-red-600/20 text-red-400'
+            }`}
+          >
+            {result.ok ? `✓ Connected — model replied: ${result.text}` : `✗ ${result.text}`}
+          </p>
+        )}
+
+        {savedKeyProviders.length > 0 && (
+          <p className="text-xs text-text-muted">
+            Saved keys: {savedKeyProviders.join(', ')} — switching the provider above loads its saved key.
+          </p>
+        )}
       </div>
 
       <p className="text-xs text-text-muted mt-3">
-        ⚠️ Keys never leave this device — they are only sent directly to the provider you chose. Clear them by
-        emptying the fields.
+        ⚠️ Keys never leave this device — they are only sent directly to the provider above. Clear the key
+        field to remove a saved key.
       </p>
     </div>
   );
@@ -220,7 +310,7 @@ export default function Home() {
           </div>
         )}
 
-        <KeyManager />
+        <LLMSetup />
 
         <div className="card">
           <div className="flex justify-between items-center mb-4">
@@ -228,9 +318,8 @@ export default function Home() {
           </div>
           <div className="space-y-2">
             <p className="text-sm text-text-secondary">
-              Play 2-4 players on this device: you against up to 3 bots. Each bot can use a different
-              provider &amp; model — or the provider&rsquo;s default free model — or a built-in heuristic
-              brain that needs no key.
+              Play 2-4 players on this device: you against up to 3 bots. LLM bots use the provider &amp;
+              model configured above; or pick a built-in heuristic brain that needs no key.
             </p>
             <Link to="/history" className="block text-accent hover:underline text-sm">
               View Game History →

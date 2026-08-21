@@ -198,6 +198,52 @@ export function getApiKey(providerId: string): string {
   return getApiKeys()[providerId] || '';
 }
 
+/**
+ * Detect which provider an API key belongs to from its shape/prefix.
+ * Returns a provider id, or null when the key format is not recognizable
+ * (the user then picks the provider manually).
+ */
+export function detectProviderFromKey(key: string): string | null {
+  const k = key.trim();
+  if (!k) return null;
+  if (k.startsWith('sk-ant-')) return 'anthropic'; // sk-ant-... / sk-ant-api03-...
+  if (k.startsWith('sk-or-')) return 'openrouter'; // sk-or-...
+  if (k.startsWith('gsk_')) return 'groq'; // gsk_...
+  if (k.startsWith('AIza')) return 'gemini'; // AIza... (AI Studio / Google)
+  if (k.startsWith('csk-')) return 'cerebras'; // csk-...
+  if (k.startsWith('sk-')) return 'openai'; // sk-... / sk-proj-... (DeepSeek also starts with sk-)
+  return null;
+}
+
+// --- Active LLM configuration (single unified window) ------------------------
+
+/**
+ * The one LLM setup the game uses: which provider + which model.
+ * null model => the provider's default free model.
+ */
+export interface LLMConfig {
+  providerId: string;
+  model: string | null;
+}
+
+const LLM_CONFIG_KEY = 'probe_llm_config';
+
+export function getLLMConfig(): LLMConfig | null {
+  try {
+    const raw = localStorage.getItem(LLM_CONFIG_KEY);
+    if (!raw) return null;
+    const cfg = JSON.parse(raw) as LLMConfig;
+    if (!cfg || typeof cfg.providerId !== 'string' || !getProvider(cfg.providerId)) return null;
+    return { providerId: cfg.providerId, model: typeof cfg.model === 'string' ? cfg.model : null };
+  } catch {
+    return null;
+  }
+}
+
+export function saveLLMConfig(cfg: LLMConfig): void {
+  localStorage.setItem(LLM_CONFIG_KEY, JSON.stringify(cfg));
+}
+
 // --- Custom provider overrides (base URL + default free model) --------------
 
 const CUSTOM_BASE_KEY = 'probe_custom_base';

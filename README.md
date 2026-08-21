@@ -10,15 +10,15 @@ No backend. No database. No signup. Everything (game state, API keys, history) l
 
 👉 **Live: https://jsherman999.github.io/probe-browser/**
 
-1. **Add an API key** for one or more providers (OpenAI, Google Gemini, Anthropic, Groq, OpenRouter,
-   DeepSeek, Mistral, Cerebras, or any OpenAI-compatible endpoint) — or skip keys entirely and let bots
-   use the built-in heuristic brain.
-2. **Set up a game**: enter your name, add up to 3 bots, and configure **each bot individually**:
-   - pick a **provider** (each bot can use a different one),
-   - pick a **model** from that provider — or choose **⭐ Default (free)**, which uses the provider's
-     default free model (e.g. Groq's `llama-3.3-70b-versatile`, Gemini's `gemini-2.5-flash`,
-     OpenRouter's `meta-llama/llama-3.3-70b-instruct:free`),
-   - or pick the **Built-in heuristic** brain (no key needed).
+1. **Add an API key** on the Home screen: paste a key and the provider is **detected automatically**
+   (OpenAI, Google Gemini, Anthropic, Groq, OpenRouter, DeepSeek, Mistral, Cerebras, or any
+   OpenAI-compatible endpoint). Then pick a **model** from the dropdown — or keep **⭐ Default (free)**,
+   which uses the provider's default free model (e.g. Groq's `llama-3.3-70b-versatile`, Gemini's
+   `gemini-2.5-flash`, OpenRouter's `meta-llama/llama-3.3-70b-instruct:free`) — and hit **Test** to
+   verify the connection. Or skip keys entirely and let bots use the built-in heuristic brain.
+2. **Set up a game**: enter your name, add up to 3 bots, and give each a **brain**:
+   - **LLM** — plays with the provider & model you configured above, or
+   - **Built-in heuristic** (no key needed).
 3. **Play Probe**: pick a secret word (4–12 letters, optionally padded with blanks), then take turns
    guessing letters in your opponents' words. Correct guesses reveal letters and score points
    (5/10/15 by position); a fully revealed word eliminates that player. Last player standing wins.
@@ -29,8 +29,8 @@ No backend. No database. No signup. Everything (game state, API keys, history) l
 
 ## ✨ Features
 
-- **Per-bot model selection** — mix providers/models in one game, or use each provider's default free model
-- **API key manager** with show/hide, per-provider "Test connection" button, and links to get keys
+- **Single LLM setup window** — paste a key, the provider is auto-detected, and the model is picked from a dropdown (or ⭐ Default free model)
+- **API key manager** with show/hide, a "Test connection" button, and a link to get keys
 - **Auto-resume** — refresh the page and keep playing; active games are persisted locally
 - **Turn timer** for humans (auto-skip on timeout), "thinking…" indicators for bots
 - **Guess Now!** full-word guessing with the same +100/+50/−50 scoring as the original
